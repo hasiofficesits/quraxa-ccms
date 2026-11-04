@@ -1,0 +1,918 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model appointments {
+  id                BigInt                       @id @default(autoincrement()) @db.UnsignedBigInt
+  session_id        BigInt                       @db.UnsignedBigInt
+  patient_id        BigInt                       @db.UnsignedBigInt
+  booking_reference String                       @unique(map: "uq_appointments_reference") @db.VarChar(20)
+  booking_number    Int                          @db.UnsignedInt
+  booked_by         BigInt?                      @db.UnsignedBigInt
+  booking_channel   appointments_booking_channel @default(WALK_IN)
+  status            appointments_status          @default(BOOKED)
+  notification_sent Boolean                      @default(false)
+  notes             String?                      @db.VarChar(255)
+  created_at        DateTime                     @default(now()) @db.Timestamp(0)
+  updated_at        DateTime                     @default(now()) @db.Timestamp(0)
+  users             users?                       @relation(fields: [booked_by], references: [id], onUpdate: Restrict, map: "fk_appointments_booker")
+  patients          patients                     @relation(fields: [patient_id], references: [id], onUpdate: Restrict, map: "fk_appointments_patient")
+  doctor_sessions   doctor_sessions              @relation(fields: [session_id], references: [id], onUpdate: Restrict, map: "fk_appointments_session")
+  visits            visits?
+
+  @@unique([session_id, booking_number], map: "uq_appointments_session_number")
+  @@index([booked_by], map: "fk_appointments_booker")
+  @@index([patient_id], map: "idx_appointments_patient")
+  @@index([status], map: "idx_appointments_status")
+}
+
+model audit_logs {
+  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  user_id     BigInt?  @db.UnsignedBigInt
+  action      String   @db.VarChar(80)
+  entity_type String?  @db.VarChar(60)
+  entity_id   BigInt?  @db.UnsignedBigInt
+  old_values  String?  @db.LongText
+  new_values  String?  @db.LongText
+  ip_address  String?  @db.VarChar(45)
+  created_at  DateTime @default(now()) @db.Timestamp(0)
+  users       users?   @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "fk_audit_user")
+
+  @@index([created_at], map: "idx_audit_created")
+  @@index([entity_type, entity_id], map: "idx_audit_entity")
+  @@index([user_id], map: "idx_audit_user")
+}
+
+model consultations {
+  id             BigInt          @id @default(autoincrement()) @db.UnsignedBigInt
+  visit_id       BigInt          @unique(map: "uq_consultations_visit") @db.UnsignedBigInt
+  doctor_id      BigInt          @db.UnsignedBigInt
+  patient_id     BigInt          @db.UnsignedBigInt
+  symptoms       String?         @db.Text
+  diagnosis      String?         @db.Text
+  clinical_notes String?         @db.Text
+  follow_up_date DateTime?       @db.Date
+  is_deleted     Boolean         @default(false)
+  created_at     DateTime        @default(now()) @db.Timestamp(0)
+  updated_at     DateTime        @default(now()) @db.Timestamp(0)
+  doctors        doctors         @relation(fields: [doctor_id], references: [id], onUpdate: Restrict, map: "fk_consultations_doctor")
+  patients       patients        @relation(fields: [patient_id], references: [id], onUpdate: Restrict, map: "fk_consultations_patient")
+  visits         visits          @relation(fields: [visit_id], references: [id], onUpdate: Restrict, map: "fk_consultations_visit")
+  prescriptions  prescriptions[]
+  test_orders    test_orders[]
+
+  @@index([doctor_id], map: "idx_consultations_doctor")
+  @@index([patient_id], map: "idx_consultations_patient")
+}
+
+model diagnostic_tests {
+  id          BigInt        @id @default(autoincrement()) @db.UnsignedBigInt
+  test_code   String        @unique(map: "uq_tests_code") @db.VarChar(20)
+  name        String        @unique(map: "uq_tests_name") @db.VarChar(150)
+  price       Decimal       @default(0.00) @db.Decimal(12, 2)
+  is_active   Boolean       @default(true)
+  created_at  DateTime      @default(now()) @db.Timestamp(0)
+  updated_at  DateTime      @default(now()) @db.Timestamp(0)
+  test_orders test_orders[]
+}
+
+model doctor_payments {
+  id              BigInt                          @id @default(autoincrement()) @db.UnsignedBigInt
+  payment_number  String                          @unique(map: "uq_doctor_payments_number") @db.VarChar(30)
+  doctor_id       BigInt                          @db.UnsignedBigInt
+  session_id      BigInt?                         @db.UnsignedBigInt
+  total_patients  Int                             @default(0) @db.UnsignedInt
+  channel_fee     Decimal                         @default(0.00) @db.Decimal(12, 2)
+  gross_amount    Decimal                         @default(0.00) @db.Decimal(12, 2)
+  commission_rate Decimal                         @default(0.00) @db.Decimal(5, 2)
+  doctor_share    Decimal                         @default(0.00) @db.Decimal(12, 2)
+  hospital_share  Decimal                         @default(0.00) @db.Decimal(12, 2)
+  payment_status  doctor_payments_payment_status  @default(PENDING)
+  payment_method  doctor_payments_payment_method?
+  period_start    DateTime?                       @db.Date
+  period_end      DateTime?                       @db.Date
+  paid_at         DateTime?                       @db.Timestamp(0)
+  processed_by    BigInt?                         @db.UnsignedBigInt
+  notes           String?                         @db.VarChar(255)
+  created_at      DateTime                        @default(now()) @db.Timestamp(0)
+  updated_at      DateTime                        @default(now()) @db.Timestamp(0)
+  doctors         doctors                         @relation(fields: [doctor_id], references: [id], onUpdate: Restrict, map: "fk_doctor_payments_doctor")
+  doctor_sessions doctor_sessions?                @relation(fields: [session_id], references: [id], onUpdate: Restrict, map: "fk_doctor_payments_session")
+  users           users?                          @relation(fields: [processed_by], references: [id], onUpdate: Restrict, map: "fk_doctor_payments_user")
+
+  @@index([processed_by], map: "fk_doctor_payments_user")
+  @@index([doctor_id], map: "idx_doctor_payments_doctor")
+  @@index([session_id], map: "idx_doctor_payments_session")
+  @@index([payment_status], map: "idx_doctor_payments_status")
+}
+
+model doctor_sessions {
+  id              BigInt                 @id @default(autoincrement()) @db.UnsignedBigInt
+  doctor_id       BigInt                 @db.UnsignedBigInt
+  room_id         BigInt?                @db.UnsignedBigInt
+  session_date    DateTime               @db.Date
+  start_time      DateTime               @db.Time(0)
+  end_time        DateTime               @db.Time(0)
+  max_patients    Int                    @default(20) @db.UnsignedInt
+  channel_fee     Decimal                @default(0.00) @db.Decimal(12, 2)
+  hospital_fee    Decimal                @default(0.00) @db.Decimal(12, 2)
+  commission_rate Decimal?               @db.Decimal(5, 2)
+  status          doctor_sessions_status @default(SCHEDULED)
+  created_by      BigInt?                @db.UnsignedBigInt
+  created_at      DateTime               @default(now()) @db.Timestamp(0)
+  updated_at      DateTime               @default(now()) @db.Timestamp(0)
+  appointments    appointments[]
+  doctor_payments doctor_payments[]
+  users           users?                 @relation(fields: [created_by], references: [id], onUpdate: Restrict, map: "fk_sessions_creator")
+  doctors         doctors                @relation(fields: [doctor_id], references: [id], onUpdate: Restrict, map: "fk_sessions_doctor")
+  rooms           rooms?                 @relation(fields: [room_id], references: [id], onUpdate: Restrict, map: "fk_sessions_room")
+  visits          visits[]
+
+  @@index([created_by], map: "idx_sessions_created_by")
+  @@index([session_date], map: "idx_sessions_date")
+  @@index([doctor_id], map: "idx_sessions_doctor")
+  @@index([room_id], map: "idx_sessions_room")
+}
+
+model doctors {
+  id                      BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
+  user_id                 BigInt?           @db.UnsignedBigInt
+  doctor_code             String            @unique(map: "uq_doctors_code") @db.VarChar(20)
+  full_name               String            @db.VarChar(120)
+  nic                     String?           @db.VarChar(20)
+  specialty_id            BigInt            @db.UnsignedBigInt
+  phone                   String?           @db.VarChar(20)
+  email                   String?           @db.VarChar(150)
+  gender                  doctors_gender?
+  default_commission_rate Decimal           @default(70.00) @db.Decimal(5, 2)
+  is_active               Boolean           @default(true)
+  is_deleted              Boolean           @default(false)
+  created_at              DateTime          @default(now()) @db.Timestamp(0)
+  updated_at              DateTime          @default(now()) @db.Timestamp(0)
+  consultations           consultations[]
+  doctor_payments         doctor_payments[]
+  doctor_sessions         doctor_sessions[]
+  specialties             specialties       @relation(fields: [specialty_id], references: [id], onUpdate: Restrict, map: "fk_doctors_specialty")
+  users                   users?            @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "fk_doctors_user")
+  prescriptions           prescriptions[]
+
+  @@index([specialty_id], map: "idx_doctors_specialty")
+  @@index([user_id], map: "idx_doctors_user")
+}
+
+model grn {
+  id             BigInt          @id @default(autoincrement()) @db.UnsignedBigInt
+  grn_number     String          @unique(map: "uq_grn_number") @db.VarChar(30)
+  supplier_id    BigInt          @db.UnsignedBigInt
+  invoice_number String?         @db.VarChar(50)
+  received_by    BigInt?         @db.UnsignedBigInt
+  received_date  DateTime        @db.Date
+  total_amount   Decimal         @default(0.00) @db.Decimal(12, 2)
+  notes          String?         @db.VarChar(255)
+  status         grn_status      @default(CONFIRMED)
+  created_at     DateTime        @default(now()) @db.Timestamp(0)
+  updated_at     DateTime        @default(now()) @db.Timestamp(0)
+  users          users?          @relation(fields: [received_by], references: [id], onUpdate: Restrict, map: "fk_grn_received_by")
+  suppliers      suppliers       @relation(fields: [supplier_id], references: [id], onUpdate: Restrict, map: "fk_grn_supplier")
+  stock_batches  stock_batches[]
+
+  @@index([received_date], map: "idx_grn_date")
+  @@index([received_by], map: "idx_grn_received_by")
+  @@index([supplier_id], map: "idx_grn_supplier")
+}
+
+model invoice_items {
+  id            BigInt                  @id @default(autoincrement()) @db.UnsignedBigInt
+  invoice_id    BigInt                  @db.UnsignedBigInt
+  item_type     invoice_items_item_type
+  description   String                  @db.VarChar(200)
+  reference_id  BigInt?                 @db.UnsignedBigInt
+  batch_id      BigInt?                 @db.UnsignedBigInt
+  quantity      Int                     @default(1) @db.UnsignedInt
+  unit_price    Decimal                 @default(0.00) @db.Decimal(12, 2)
+  line_discount Decimal                 @default(0.00) @db.Decimal(12, 2)
+  line_total    Decimal                 @default(0.00) @db.Decimal(12, 2)
+  created_at    DateTime                @default(now()) @db.Timestamp(0)
+  stock_batches stock_batches?          @relation(fields: [batch_id], references: [id], onUpdate: Restrict, map: "fk_invoice_items_batch")
+  invoices      invoices                @relation(fields: [invoice_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_invoice_items_invoice")
+
+  @@index([batch_id], map: "idx_invoice_items_batch")
+  @@index([invoice_id], map: "idx_invoice_items_invoice")
+  @@index([item_type], map: "idx_invoice_items_type")
+}
+
+model invoices {
+  id             BigInt                  @id @default(autoincrement()) @db.UnsignedBigInt
+  invoice_number String                  @unique(map: "uq_invoices_number") @db.VarChar(30)
+  patient_id     BigInt?                 @db.UnsignedBigInt
+  visit_id       BigInt?                 @db.UnsignedBigInt
+  invoice_type   invoices_invoice_type   @default(PHARMACY)
+  subtotal       Decimal                 @default(0.00) @db.Decimal(12, 2)
+  discount       Decimal                 @default(0.00) @db.Decimal(12, 2)
+  tax            Decimal                 @default(0.00) @db.Decimal(12, 2)
+  total          Decimal                 @default(0.00) @db.Decimal(12, 2)
+  paid_amount    Decimal                 @default(0.00) @db.Decimal(12, 2)
+  balance        Decimal                 @default(0.00) @db.Decimal(12, 2)
+  payment_method invoices_payment_method @default(CASH)
+  status         invoices_status         @default(PENDING)
+  created_by     BigInt?                 @db.UnsignedBigInt
+  is_deleted     Boolean                 @default(false)
+  created_at     DateTime                @default(now()) @db.Timestamp(0)
+  updated_at     DateTime                @default(now()) @db.Timestamp(0)
+  invoice_items  invoice_items[]
+  prescriptions  prescriptions[]
+  users          users?                  @relation(fields: [created_by], references: [id], onUpdate: Restrict, map: "fk_invoices_created_by")
+  patients       patients?               @relation(fields: [patient_id], references: [id], onUpdate: Restrict, map: "fk_invoices_patient")
+  visits         visits?                 @relation(fields: [visit_id], references: [id], onUpdate: Restrict, map: "fk_invoices_visit")
+  insurance_claims insurance_claims[]
+
+  @@index([created_by], map: "fk_invoices_created_by")
+  @@index([created_at], map: "idx_invoices_created")
+  @@index([patient_id], map: "idx_invoices_patient")
+  @@index([status], map: "idx_invoices_status")
+  @@index([visit_id], map: "idx_invoices_visit")
+}
+
+model message_logs {
+  id                  BigInt                 @id @default(autoincrement()) @db.UnsignedBigInt
+  channel             message_logs_channel
+  direction           message_logs_direction @default(OUTBOUND)
+  recipient_type      String?                @db.VarChar(30)
+  recipient_id        BigInt?                @db.UnsignedBigInt
+  recipient_name      String?                @db.VarChar(120)
+  recipient_address   String                 @db.VarChar(255)
+  subject             String?                @db.VarChar(255)
+  message             String                 @db.Text
+  status              message_logs_status    @default(PENDING)
+  provider            String?                @db.VarChar(50)
+  provider_message_id String?                @db.VarChar(255)
+  error_message       String?                @db.Text
+  entity_type         String?                @db.VarChar(60)
+  entity_id           BigInt?                @db.UnsignedBigInt
+  user_id             BigInt?                @db.UnsignedBigInt
+  created_at          DateTime               @default(now()) @db.Timestamp(0)
+  sent_at             DateTime?              @db.Timestamp(0)
+  users               users?                 @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "fk_message_logs_user")
+
+  @@index([channel], map: "idx_message_logs_channel")
+  @@index([status], map: "idx_message_logs_status")
+  @@index([entity_type, entity_id], map: "idx_message_logs_entity")
+  @@index([recipient_type, recipient_id], map: "idx_message_logs_recipient")
+  @@index([user_id], map: "fk_message_logs_user")
+}
+
+model medicine_categories {
+  id         BigInt      @id @default(autoincrement()) @db.UnsignedBigInt
+  name       String      @unique(map: "uq_med_categories_name") @db.VarChar(80)
+  is_active  Boolean     @default(true)
+  created_at DateTime    @default(now()) @db.Timestamp(0)
+  medicines  medicines[]
+}
+
+// ---- Admin-managed dropdown lists ----------------------------------
+// Plain label lists — medicines/prescription_items still store the chosen
+// value as a free string (no FK), so adding/retiring an option here never
+// touches existing records.
+
+model medicine_strengths {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  name       String   @unique(map: "uq_medicine_strengths_name") @db.VarChar(50)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamp(0)
+}
+
+model medicine_units {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  name       String   @unique(map: "uq_medicine_units_name") @db.VarChar(30)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamp(0)
+}
+
+model prescription_doses {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  name       String   @unique(map: "uq_prescription_doses_name") @db.VarChar(80)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamp(0)
+}
+
+model prescription_frequencies {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  name       String   @unique(map: "uq_prescription_frequencies_name") @db.VarChar(80)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamp(0)
+}
+
+model prescription_durations {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  name       String   @unique(map: "uq_prescription_durations_name") @db.VarChar(80)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamp(0)
+}
+
+model holidays {
+  id         BigInt        @id @default(autoincrement()) @db.UnsignedBigInt
+  date       DateTime      @unique(map: "uq_holidays_date") @db.Date
+  name       String        @db.VarChar(150)
+  type       holidays_type @default(PUBLIC)
+  is_active  Boolean       @default(true)
+  created_at DateTime      @default(now()) @db.Timestamp(0)
+  updated_at DateTime      @default(now()) @db.Timestamp(0)
+
+  @@index([date], map: "idx_holidays_date")
+}
+
+model medicines {
+  id                    BigInt               @id @default(autoincrement()) @db.UnsignedBigInt
+  medicine_code         String               @unique(map: "uq_medicines_code") @db.VarChar(30)
+  generic_name          String               @db.VarChar(150)
+  brand_name            String?              @db.VarChar(150)
+  category_id           BigInt?              @db.UnsignedBigInt
+  strength              String?              @db.VarChar(50)
+  unit                  String               @default("unit") @db.VarChar(30)
+  reorder_level         Int                  @default(0) @db.UnsignedInt
+  default_selling_price Decimal              @default(0.00) @db.Decimal(12, 2)
+  is_active             Boolean              @default(true)
+  is_deleted            Boolean              @default(false)
+  created_at            DateTime             @default(now()) @db.Timestamp(0)
+  updated_at            DateTime             @default(now()) @db.Timestamp(0)
+  medicine_categories   medicine_categories? @relation(fields: [category_id], references: [id], onUpdate: Restrict, map: "fk_medicines_category")
+  prescription_items    prescription_items[]
+  stock_batches         stock_batches[]
+  stock_movements       stock_movements[]
+  stock_returns         stock_returns[]
+
+  @@index([brand_name], map: "idx_medicines_brand")
+  @@index([category_id], map: "idx_medicines_category")
+  @@index([generic_name], map: "idx_medicines_generic")
+}
+
+model patients {
+  id                    BigInt           @id @default(autoincrement()) @db.UnsignedBigInt
+  patient_code          String           @unique(map: "uq_patients_code") @db.VarChar(20)
+  full_name             String           @db.VarChar(120)
+  nic                   String?          @db.VarChar(20)
+  date_of_birth         DateTime?        @db.Date
+  gender                patients_gender?
+  phone                 String?          @db.VarChar(20)
+  email                 String?          @db.VarChar(150)
+  address               String?          @db.VarChar(255)
+  blood_group           String?          @db.VarChar(5)
+  guardian_name         String?          @db.VarChar(120)
+  guardian_phone        String?          @db.VarChar(20)
+  guardian_relationship String?          @db.VarChar(50)
+  // PDPA (Personal Data Protection Act No. 9 of 2022) consent — captured at
+  // registration; health data is "sensitive personal data" under the Act.
+  data_consent_given    Boolean          @default(false)
+  data_consent_at       DateTime?        @db.Timestamp(0)
+  is_deleted            Boolean          @default(false)
+  created_at            DateTime         @default(now()) @db.Timestamp(0)
+  updated_at            DateTime         @default(now()) @db.Timestamp(0)
+  appointments          appointments[]
+  consultations         consultations[]
+  invoices              invoices[]
+  prescriptions         prescriptions[]
+  test_orders           test_orders[]
+  insurance_claims      insurance_claims[]
+
+  @@index([full_name], map: "idx_patients_name")
+  @@index([nic], map: "idx_patients_nic")
+  @@index([phone], map: "idx_patients_phone")
+}
+
+model permissions {
+  id               BigInt             @id @default(autoincrement()) @db.UnsignedBigInt
+  code             String             @unique(map: "UNIQUE") @db.VarChar(80)
+  module           String             @db.VarChar(50)
+  created_at       DateTime           @default(now()) @db.Timestamp(0)
+  role_permissions role_permissions[]
+
+  @@index([module], map: "INDEX")
+}
+
+model prescription_items {
+  id              BigInt                    @id @default(autoincrement()) @db.UnsignedBigInt
+  prescription_id BigInt                    @db.UnsignedBigInt
+  medicine_id     BigInt?                   @db.UnsignedBigInt
+  medicine_name   String                    @db.VarChar(150)
+  dose            String?                   @db.VarChar(80)
+  frequency       String?                   @db.VarChar(80)
+  duration        String?                   @db.VarChar(80)
+  quantity        Int?                      @db.UnsignedInt
+  instructions    String?                   @db.VarChar(255)
+  status          prescription_items_status @default(PENDING)
+  created_at      DateTime                  @default(now()) @db.Timestamp(0)
+  medicines       medicines?                @relation(fields: [medicine_id], references: [id], onUpdate: Restrict, map: "fk_presc_items_medicine")
+  prescriptions   prescriptions             @relation(fields: [prescription_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_presc_items_prescription")
+
+  @@index([medicine_id], map: "idx_presc_items_medicine")
+  @@index([prescription_id], map: "idx_presc_items_prescription")
+}
+
+model prescriptions {
+  id                 BigInt               @id @default(autoincrement()) @db.UnsignedBigInt
+  consultation_id    BigInt               @db.UnsignedBigInt
+  patient_id         BigInt               @db.UnsignedBigInt
+  doctor_id          BigInt               @db.UnsignedBigInt
+  invoice_id         BigInt?              @db.UnsignedBigInt
+  prescription_code  String               @unique(map: "uq_prescriptions_code") @db.VarChar(20)
+  notes              String?              @db.Text
+  is_dispensed       Boolean              @default(false)
+  is_deleted         Boolean              @default(false)
+  created_at         DateTime             @default(now()) @db.Timestamp(0)
+  updated_at         DateTime             @default(now()) @db.Timestamp(0)
+  prescription_items prescription_items[]
+  consultations      consultations        @relation(fields: [consultation_id], references: [id], onUpdate: Restrict, map: "fk_prescriptions_consultation")
+  doctors            doctors              @relation(fields: [doctor_id], references: [id], onUpdate: Restrict, map: "fk_prescriptions_doctor")
+  patients           patients             @relation(fields: [patient_id], references: [id], onUpdate: Restrict, map: "fk_prescriptions_patient")
+  invoices           invoices?            @relation(fields: [invoice_id], references: [id], onUpdate: Restrict, map: "fk_prescriptions_invoice")
+
+  @@index([consultation_id], map: "idx_prescriptions_consultation")
+  @@index([doctor_id], map: "idx_prescriptions_doctor")
+  @@index([patient_id], map: "idx_prescriptions_patient")
+  @@index([invoice_id], map: "idx_prescriptions_invoice")
+}
+
+model role_permissions {
+  role_id       BigInt      @db.UnsignedBigInt
+  permission_id BigInt      @db.UnsignedBigInt
+  created_at    DateTime    @default(now()) @db.Timestamp(0)
+  permissions   permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_rp_permission")
+  roles         roles       @relation(fields: [role_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_rp_role")
+
+  @@id([role_id, permission_id])
+  @@index([permission_id], map: "fk_rp_permission")
+}
+
+model roles {
+  id               BigInt             @id @default(autoincrement()) @db.UnsignedBigInt
+  name             String             @unique(map: "name") @db.VarChar(50)
+  description      String?            @db.VarChar(255)
+  is_system        Boolean            @default(false)
+  is_active        Boolean            @default(true)
+  created_at       DateTime           @default(now()) @db.Timestamp(0)
+  role_permissions role_permissions[]
+  users            users[]
+}
+
+model rooms {
+  id              BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
+  room_number     String            @unique(map: "uq_rooms_number") @db.VarChar(20)
+  name            String?           @db.VarChar(100)
+  is_active       Boolean           @default(true)
+  created_at      DateTime          @default(now()) @db.Timestamp(0)
+  doctor_sessions doctor_sessions[]
+}
+
+model specialties {
+  id         BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  name       String    @unique(map: "uq_specialties_name") @db.VarChar(100)
+  is_active  Boolean   @default(true)
+  created_at DateTime  @default(now()) @db.Timestamp(0)
+  doctors    doctors[]
+}
+
+model stock_batches {
+  id                 BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
+  medicine_id        BigInt            @db.UnsignedBigInt
+  grn_id             BigInt?           @db.UnsignedBigInt
+  supplier_id        BigInt?           @db.UnsignedBigInt
+  batch_number       String            @db.VarChar(60)
+  expiry_date        DateTime          @db.Date
+  quantity_received  Int               @default(0) @db.UnsignedInt
+  quantity_available Int               @default(0) @db.UnsignedInt
+  cost_price         Decimal           @default(0.00) @db.Decimal(12, 2)
+  selling_price      Decimal           @default(0.00) @db.Decimal(12, 2)
+  is_deleted         Boolean           @default(false)
+  created_at         DateTime          @default(now()) @db.Timestamp(0)
+  updated_at         DateTime          @default(now()) @db.Timestamp(0)
+  invoice_items      invoice_items[]
+  grn                grn?              @relation(fields: [grn_id], references: [id], onUpdate: Restrict, map: "fk_batches_grn")
+  medicines          medicines         @relation(fields: [medicine_id], references: [id], onUpdate: Restrict, map: "fk_batches_medicine")
+  suppliers          suppliers?        @relation(fields: [supplier_id], references: [id], onUpdate: Restrict, map: "fk_batches_supplier")
+  stock_movements    stock_movements[]
+  stock_returns      stock_returns[]
+
+  @@index([expiry_date], map: "idx_batches_expiry")
+  @@index([medicine_id, quantity_available, expiry_date], map: "idx_batches_fefo")
+  @@index([grn_id], map: "idx_batches_grn")
+  @@index([medicine_id], map: "idx_batches_medicine")
+  @@index([supplier_id], map: "idx_batches_supplier")
+}
+
+model stock_movements {
+  id              BigInt                        @id @default(autoincrement()) @db.UnsignedBigInt
+  batch_id        BigInt                        @db.UnsignedBigInt
+  medicine_id     BigInt                        @db.UnsignedBigInt
+  movement_type   stock_movements_movement_type
+  quantity_change Int
+  balance_after   Int                           @db.UnsignedInt
+  reference_type  String?                       @db.VarChar(40)
+  reference_id    BigInt?                       @db.UnsignedBigInt
+  user_id         BigInt?                       @db.UnsignedBigInt
+  notes           String?                       @db.VarChar(255)
+  created_at      DateTime                      @default(now()) @db.Timestamp(0)
+  stock_batches   stock_batches                 @relation(fields: [batch_id], references: [id], onUpdate: Restrict, map: "fk_movements_batch")
+  medicines       medicines                     @relation(fields: [medicine_id], references: [id], onUpdate: Restrict, map: "fk_movements_medicine")
+  users           users?                        @relation(fields: [user_id], references: [id], onUpdate: Restrict, map: "fk_movements_user")
+
+  @@index([user_id], map: "fk_movements_user")
+  @@index([batch_id], map: "idx_movements_batch")
+  @@index([created_at], map: "idx_movements_created")
+  @@index([medicine_id], map: "idx_movements_medicine")
+  @@index([reference_type, reference_id], map: "idx_movements_reference")
+  @@index([movement_type], map: "idx_movements_type")
+}
+
+model stock_returns {
+  id            BigInt               @id @default(autoincrement()) @db.UnsignedBigInt
+  return_number String               @unique(map: "uq_returns_number") @db.VarChar(30)
+  batch_id      BigInt               @db.UnsignedBigInt
+  medicine_id   BigInt               @db.UnsignedBigInt
+  supplier_id   BigInt?              @db.UnsignedBigInt
+  quantity      Int                  @db.UnsignedInt
+  reason        stock_returns_reason @default(EXPIRED)
+  reason_notes  String?              @db.VarChar(255)
+  returned_by   BigInt?              @db.UnsignedBigInt
+  return_date   DateTime             @db.Date
+  created_at    DateTime             @default(now()) @db.Timestamp(0)
+  stock_batches stock_batches        @relation(fields: [batch_id], references: [id], onUpdate: Restrict, map: "fk_returns_batch")
+  medicines     medicines            @relation(fields: [medicine_id], references: [id], onUpdate: Restrict, map: "fk_returns_medicine")
+  suppliers     suppliers?           @relation(fields: [supplier_id], references: [id], onUpdate: Restrict, map: "fk_returns_supplier")
+
+  @@index([batch_id], map: "idx_returns_batch")
+  @@index([medicine_id], map: "idx_returns_medicine")
+  @@index([supplier_id], map: "idx_returns_supplier")
+}
+
+// Singleton (id always 1) — business identity shown on printed invoices/
+// receipts, per Business Names Act / IRD tax-invoice expectations.
+model business_settings {
+  id              Int      @id @default(1)
+  business_name   String   @default("QuraXa Channeling Center") @db.VarChar(150)
+  address         String?  @db.VarChar(255)
+  phone           String?  @db.VarChar(20)
+  business_reg_no String?  @db.VarChar(60)
+  tin_number      String?  @db.VarChar(60)
+  updated_at      DateTime @default(now()) @updatedAt @db.Timestamp(0)
+}
+
+model insurers {
+  id                BigInt              @id @default(autoincrement()) @db.UnsignedBigInt
+  insurer_code      String              @unique(map: "uq_insurers_code") @db.VarChar(30)
+  name              String              @db.VarChar(150)
+  contact_person    String?             @db.VarChar(120)
+  phone             String?             @db.VarChar(20)
+  email             String?             @db.VarChar(150)
+  address           String?             @db.VarChar(255)
+  is_active         Boolean             @default(true)
+  is_deleted        Boolean             @default(false)
+  created_at        DateTime            @default(now()) @db.Timestamp(0)
+  updated_at        DateTime            @default(now()) @db.Timestamp(0)
+  insurance_claims  insurance_claims[]
+
+  @@index([name], map: "idx_insurers_name")
+}
+
+model insurance_claims {
+  id                   BigInt                       @id @default(autoincrement()) @db.UnsignedBigInt
+  claim_number         String                       @unique(map: "uq_insurance_claims_number") @db.VarChar(30)
+  invoice_id           BigInt                       @db.UnsignedBigInt
+  patient_id           BigInt                       @db.UnsignedBigInt
+  insurer_id           BigInt                       @db.UnsignedBigInt
+  policy_number        String                       @db.VarChar(60)
+  claimed_amount       Decimal                      @default(0.00) @db.Decimal(12, 2)
+  approved_amount      Decimal?                     @db.Decimal(12, 2)
+  status               insurance_claims_status       @default(DRAFT)
+  rejection_reason     String?                       @db.VarChar(255)
+  notes                String?                       @db.VarChar(255)
+  submitted_at         DateTime?                     @db.Timestamp(0)
+  decided_at           DateTime?                     @db.Timestamp(0)
+  paid_at              DateTime?                     @db.Timestamp(0)
+  created_by           BigInt?                       @db.UnsignedBigInt
+  is_deleted           Boolean                       @default(false)
+  created_at           DateTime                      @default(now()) @db.Timestamp(0)
+  updated_at           DateTime                      @default(now()) @db.Timestamp(0)
+  invoices             invoices                      @relation(fields: [invoice_id], references: [id], onUpdate: Restrict, map: "fk_claims_invoice")
+  patients             patients                      @relation(fields: [patient_id], references: [id], onUpdate: Restrict, map: "fk_claims_patient")
+  insurers             insurers                      @relation(fields: [insurer_id], references: [id], onUpdate: Restrict, map: "fk_claims_insurer")
+  users                users?                        @relation(fields: [created_by], references: [id], onUpdate: Restrict, map: "fk_claims_created_by")
+  documents            insurance_claim_documents[]
+
+  @@index([invoice_id], map: "idx_claims_invoice")
+  @@index([patient_id], map: "idx_claims_patient")
+  @@index([insurer_id], map: "idx_claims_insurer")
+  @@index([status], map: "idx_claims_status")
+}
+
+model insurance_claim_documents {
+  id                BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
+  claim_id          BigInt            @db.UnsignedBigInt
+  file_path         String            @db.VarChar(255)
+  file_name         String            @db.VarChar(255)
+  uploaded_by       BigInt?           @db.UnsignedBigInt
+  created_at        DateTime          @default(now()) @db.Timestamp(0)
+  insurance_claims  insurance_claims  @relation(fields: [claim_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_claim_documents_claim")
+  users             users?            @relation(fields: [uploaded_by], references: [id], onUpdate: Restrict, map: "fk_claim_documents_uploader")
+
+  @@index([claim_id], map: "idx_claim_documents_claim")
+}
+
+model suppliers {
+  id             BigInt          @id @default(autoincrement()) @db.UnsignedBigInt
+  supplier_code  String          @unique(map: "uq_suppliers_code") @db.VarChar(30)
+  name           String          @db.VarChar(150)
+  contact_person String?         @db.VarChar(120)
+  phone          String?         @db.VarChar(20)
+  email          String?         @db.VarChar(150)
+  address        String?         @db.VarChar(255)
+  is_active      Boolean         @default(true)
+  is_deleted     Boolean         @default(false)
+  created_at     DateTime        @default(now()) @db.Timestamp(0)
+  updated_at     DateTime        @default(now()) @db.Timestamp(0)
+  grn            grn[]
+  stock_batches  stock_batches[]
+  stock_returns  stock_returns[]
+
+  @@index([name], map: "idx_suppliers_name")
+}
+
+model test_orders {
+  id                  BigInt             @id @default(autoincrement()) @db.UnsignedBigInt
+  consultation_id     BigInt             @db.UnsignedBigInt
+  test_id             BigInt             @db.UnsignedBigInt
+  patient_id          BigInt             @db.UnsignedBigInt
+  price_at_order      Decimal            @default(0.00) @db.Decimal(12, 2)
+  status              test_orders_status @default(ORDERED)
+  result_notes        String?            @db.Text
+  ordered_at          DateTime           @default(now()) @db.Timestamp(0)
+  sample_collected_at DateTime?          @db.Timestamp(0)
+  completed_at        DateTime?          @db.Timestamp(0)
+  report_file_path    String?            @db.VarChar(255)
+  report_file_name    String?            @db.VarChar(255)
+  uploaded_by         BigInt?            @db.UnsignedBigInt
+  created_at          DateTime           @default(now()) @db.Timestamp(0)
+  updated_at          DateTime           @default(now()) @db.Timestamp(0)
+  consultations       consultations      @relation(fields: [consultation_id], references: [id], onUpdate: Restrict, map: "fk_test_orders_consultation")
+  patients            patients           @relation(fields: [patient_id], references: [id], onUpdate: Restrict, map: "fk_test_orders_patient")
+  diagnostic_tests    diagnostic_tests   @relation(fields: [test_id], references: [id], onUpdate: Restrict, map: "fk_test_orders_test")
+
+  @@index([consultation_id], map: "idx_test_orders_consultation")
+  @@index([patient_id], map: "idx_test_orders_patient")
+  @@index([status], map: "idx_test_orders_status")
+  @@index([test_id], map: "idx_test_orders_test")
+}
+
+model users {
+  id                             BigInt              @id @default(autoincrement()) @db.UnsignedBigInt
+  role_id                        BigInt              @db.UnsignedBigInt
+  full_name                      String              @db.VarChar(120)
+  username                       String              @unique(map: "USERNAME") @db.VarChar(60)
+  email                          String              @unique(map: "EMAIL") @db.VarChar(150)
+  password_hash                  String              @db.VarChar(255)
+  phone                          String?             @db.VarChar(20)
+  is_active                      Boolean             @default(true)
+  must_change_password           Boolean             @default(true)
+  last_login_at                  DateTime?           @db.Timestamp(0)
+  appointments                   appointments[]
+  audit_logs                     audit_logs[]
+  doctor_payments                doctor_payments[]
+  doctor_sessions                doctor_sessions[]
+  doctors                        doctors[]
+  grn                            grn[]
+  invoices                       invoices[]
+  message_logs                   message_logs[]
+  stock_movements                stock_movements[]
+  employee_payments_as_employee  employee_payments[] @relation("EmployeePaymentsEmployee")
+  employee_payments_as_processor employee_payments[] @relation("EmployeePaymentsProcessor")
+  roles                          roles               @relation(fields: [role_id], references: [id], onUpdate: Restrict, map: "fk_users_role")
+  visits                         visits[]
+  refresh_tokens                 refresh_tokens[]
+  insurance_claims               insurance_claims[]
+  insurance_claim_documents      insurance_claim_documents[]
+
+  @@index([role_id], map: "fk_users_role")
+}
+
+// One row per issued refresh token — lets a token be revoked individually
+// (single logout) or in bulk (logout everywhere), and lets an admin/audit
+// trail see active sessions. Only the SHA-256 hash is stored; the raw token
+// only ever exists in the httpOnly cookie and briefly in memory here.
+model refresh_tokens {
+  id         BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  user_id    BigInt    @db.UnsignedBigInt
+  token_hash String    @unique(map: "uq_refresh_tokens_hash") @db.VarChar(64)
+  expires_at DateTime  @db.Timestamp(0)
+  revoked_at DateTime? @db.Timestamp(0)
+  user_agent String?   @db.VarChar(255)
+  ip_address String?   @db.VarChar(45)
+  created_at DateTime  @default(now()) @db.Timestamp(0)
+  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_refresh_tokens_user")
+
+  @@index([user_id], map: "idx_refresh_tokens_user")
+  @@index([expires_at], map: "idx_refresh_tokens_expires")
+}
+
+model employee_payments {
+  id             BigInt                          @id @default(autoincrement()) @db.UnsignedBigInt
+  payment_number String                          @unique(map: "uq_employee_payments_number") @db.VarChar(30)
+  user_id        BigInt                          @db.UnsignedBigInt
+  amount         Decimal                         @default(0.00) @db.Decimal(12, 2)
+  payment_status doctor_payments_payment_status  @default(PENDING)
+  payment_method doctor_payments_payment_method?
+  period_start   DateTime?                       @db.Date
+  period_end     DateTime?                       @db.Date
+  paid_at        DateTime?                       @db.Timestamp(0)
+  processed_by   BigInt?                         @db.UnsignedBigInt
+  notes          String?                         @db.VarChar(255)
+  created_at     DateTime                        @default(now()) @db.Timestamp(0)
+  updated_at     DateTime                        @default(now()) @db.Timestamp(0)
+  employee       users                           @relation("EmployeePaymentsEmployee", fields: [user_id], references: [id], onUpdate: Restrict, map: "fk_employee_payments_user")
+  processor      users?                          @relation("EmployeePaymentsProcessor", fields: [processed_by], references: [id], onUpdate: Restrict, map: "fk_employee_payments_processor")
+
+  @@index([user_id], map: "idx_employee_payments_user")
+  @@index([processed_by], map: "fk_employee_payments_processor")
+  @@index([payment_status], map: "idx_employee_payments_status")
+}
+
+model visits {
+  id                      BigInt          @id @default(autoincrement()) @db.UnsignedBigInt
+  appointment_id          BigInt          @unique(map: "uq_visits_appointment") @db.UnsignedBigInt
+  session_id              BigInt          @db.UnsignedBigInt
+  token_number            Int             @db.UnsignedInt
+  status                  visits_status   @default(WAITING)
+  checked_in_by           BigInt?         @db.UnsignedBigInt
+  checked_in_at           DateTime        @default(now()) @db.Timestamp(0)
+  consultation_started_at DateTime?       @db.Timestamp(0)
+  consultation_ended_at   DateTime?       @db.Timestamp(0)
+  created_at              DateTime        @default(now()) @db.Timestamp(0)
+  updated_at              DateTime        @default(now()) @db.Timestamp(0)
+  consultations           consultations?
+  invoices                invoices[]
+  appointments            appointments    @relation(fields: [appointment_id], references: [id], onUpdate: Restrict, map: "fk_visits_appointment")
+  users                   users?          @relation(fields: [checked_in_by], references: [id], onUpdate: Restrict, map: "fk_visits_checkin_by")
+  doctor_sessions         doctor_sessions @relation(fields: [session_id], references: [id], onUpdate: Restrict, map: "fk_visits_session")
+
+  @@unique([session_id, token_number], map: "uq_visits_session_token")
+  @@index([checked_in_by], map: "fk_visits_checkin_by")
+  @@index([status], map: "idx_visits_status")
+}
+
+enum invoice_items_item_type {
+  CONSULTATION
+  HOSPITAL_FEE
+  MEDICINE
+  TEST
+  OTHER
+}
+
+enum stock_movements_movement_type {
+  RECEIVE
+  SALE
+  RETURN_SUPPLIER
+  RETURN_CUSTOMER
+  ADJUSTMENT
+  EXPIRED
+}
+
+enum invoices_invoice_type {
+  CHANNEL
+  PHARMACY
+  MIXED
+}
+
+enum message_logs_channel {
+  WHATSAPP
+  EMAIL
+  SMS
+  PUSH
+}
+
+enum message_logs_direction {
+  OUTBOUND
+  INBOUND
+}
+
+enum message_logs_status {
+  PENDING
+  SENT
+  FAILED
+  DELIVERED
+  READ
+}
+
+enum prescription_items_status {
+  PENDING
+  ADDED
+  UNAVAILABLE
+}
+
+enum visits_status {
+  WAITING
+  IN_CONSULTATION
+  DONE
+  SKIPPED
+}
+
+enum patients_gender {
+  Male
+  Female
+  Other
+}
+
+enum test_orders_status {
+  ORDERED
+  SAMPLE_COLLECTED
+  COMPLETED
+  CANCELLED
+}
+
+enum insurance_claims_status {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  PAID
+  CANCELLED
+}
+
+enum holidays_type {
+  PUBLIC
+  BANK
+  MERCANTILE
+  POYA
+  OTHER
+}
+
+enum appointments_booking_channel {
+  WALK_IN
+  PHONE
+  ONLINE
+}
+
+enum stock_returns_reason {
+  EXPIRED
+  DAMAGED
+  RECALL
+  OVERSTOCK
+  OTHER
+}
+
+enum appointments_status {
+  BOOKED
+  CONFIRMED
+  ARRIVED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum doctors_gender {
+  Male
+  Female
+  Other
+}
+
+enum grn_status {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
+enum doctor_payments_payment_status {
+  PENDING
+  PAID
+  CANCELLED
+}
+
+enum doctor_sessions_status {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum doctor_payments_payment_method {
+  CASH
+  BANK_TRANSFER
+  CHEQUE
+}
+
+enum invoices_payment_method {
+  CASH
+  CARD
+  MIXED
+  PENDING
+}
+
+enum invoices_status {
+  PENDING
+  PARTIAL
+  PAID
+  CANCELLED
+}
